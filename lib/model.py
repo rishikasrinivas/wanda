@@ -172,9 +172,10 @@ class BertEntailmentClassifier(BaseModel):
         self.vocab = vocab
         self.encoder_name = encoder_name
         self.encoder = AutoModel.from_pretrained(encoder_name)
+        self.config = self.encoder.config
         self.tokenizer = AutoTokenizer.from_pretrained(encoder_name)
         
-        self.seqlen=self.encoder.config.max_position_embeddings
+        self.seqlen=self.config.max_position_embeddings
 #         if freeze_bert:
 #             for param in self.encoder.parameters():
 #                 param.requires_grad = False

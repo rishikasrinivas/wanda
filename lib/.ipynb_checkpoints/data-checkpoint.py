@@ -58,8 +58,6 @@ def get_c4(nsamples, seed, seqlen, tokenizer):
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
-    print("Trainloader c4", trainloader)
-
     # Prepare validation dataset
     valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')
     valenc = valenc.input_ids[:, :(256 * seqlen)]
@@ -87,7 +85,6 @@ def get_snli(nsamples, seed, seqlen, tokenizer):
         tar = inp.clone()
         tar[:, :-1] = -100
         trainloader.append((inp, tar))
-    print("Trainloader c4", trainloader)
 
     # Prepare validation dataset
     valenc = tokenizer(' '.join(valdata[:1100]['text']), return_tensors='pt')

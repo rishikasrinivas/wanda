@@ -82,11 +82,8 @@ def check_sparsity(model):
 def prepare_calibration_input(model, dataloader, device):
     use_cache = model.config.use_cache
     model.config.use_cache = False
-    layers = model.model.layers
+    layers = model.layers
 
-    # dev = model.hf_device_map["model.embed_tokens"]
-    if "model.embed_tokens" in model.hf_device_map:
-        device = model.hf_device_map["model.embed_tokens"]
 
     dtype = next(iter(model.parameters())).dtype
     inps = torch.zeros((128, model.seqlen, model.config.hidden_size), dtype=dtype, device=device)
@@ -160,15 +157,13 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     with torch.no_grad():
         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
         #outs is all zeros
+    return
      
-
-    layers = model.model.layers
+    layers = model.layers
     print("In prune: layers=", layers)
     for i in range(len(layers)):
         layer = layers[i]
-        print(f"In prune iter {i}: layers{i}=", layer)
         subset = find_layers(layer)
-        print(f"In prune subset=", subset)
 
         if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
             dev = model.hf_device_map[f"model.layers.{i}"]
@@ -270,7 +265,6 @@ def prune_wanda_bert(args, model, tokenizer, device=torch.device("cuda:0"), prun
     wrapped_layers = {}
     for name in subset:
         wrapped_layers[name] = WrappedGPT(subset[name])
-        print(f"In prune wrapped_layers=", wrapped_layers)
 
 
     def add_batch(name):
