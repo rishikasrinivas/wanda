@@ -15,6 +15,7 @@ class Layer:
     def __init__(
             self,
             name: str,
+            module: torch.nn.Module,
             weights: torch.nn.Parameter,
             initial_weights: torch.Tensor,
             pruning_mask: torch.Tensor) -> None:
@@ -34,6 +35,7 @@ class Layer:
         self.name = name
 
         self.weights = weights
+        self.module=module
         self.initial_weights = initial_weights
         self.pruning_mask = pruning_mask
 
@@ -63,7 +65,9 @@ class BaseModel(torch.nn.Module):
         self.layers = []
         for parameter_name, parameter in self.named_parameters():
             weights = parameter
-
+            associated_module = None
+            
+            
             weights.requires_grad = True
             init_weights=parameter.clone()
 
@@ -72,9 +76,11 @@ class BaseModel(torch.nn.Module):
             # Adds the layer to the internal list of layers
 
 
-            self.layers.append(Layer(parameter_name, weights, init_weights, pruning_mask))
-
-
+            self.layers.append(Layer(parameter_name, associated_module, weights, init_weights, pruning_mask))
+        for module_name, module in self.named_modules():
+            for i, layer in enumerate(self.layers):
+                if module_name in layer.name:
+                    self.layers[i].module=module
 
     def get_layer_names(self):
         """Retrieves the internal names of all the layers of the model.

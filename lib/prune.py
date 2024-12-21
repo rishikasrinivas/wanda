@@ -5,7 +5,7 @@ import torch.nn as nn
 from .sparsegpt import SparseGPT 
 from .layerwrapper import WrappedGPT
 from .data import get_loaders 
-
+from .collect_data import create_dataloaders
 from .ablate import AblateGPT 
 
 def find_layers(module, layers=[nn.Linear], name=''):
@@ -102,8 +102,8 @@ def prepare_calibration_input(model, dataloader, device):
             raise ValueError
     layers[0] = Catcher(layers[0])
     for batch in dataloader:
-        
         try:
+            s1, s1len, s2, s2len, target = batch[0].to(device)
             model(batch[0].to(device))
         except ValueError:
             pass 
@@ -151,25 +151,25 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     model.config.use_cache = False 
 
     print("loading calibdation data")
+    _,_,_, dataloaders=create_dataloaders(max_data=10000)
+    dataloader = dataloaders['train']
     dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     
     print("dataset loading complete")
-    with torch.no_grad():
-        inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
+    #with torch.no_grad():
+     #   inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
         #outs is all zeros
-    return
+ 
      
     layers = model.layers
-    print("In prune: layers=", layers)
+
     for i in range(len(layers)):
         layer = layers[i]
-        subset = find_layers(layer)
-
-        if f"model.layers.{i}" in model.hf_device_map:   ## handle the case for llama-30B and llama-65B, when the device map has multiple GPUs;
-            dev = model.hf_device_map[f"model.layers.{i}"]
-            inps, outs, attention_mask, position_ids = inps.to(dev), outs.to(dev), attention_mask.to(dev), position_ids.to(dev)
+        subset=[layer]
+        
+        #inps, outs, attention_mask, position_ids = inps.to(device), outs.to(device), attention_mask.to(device), position_ids.to(device)
             
-
+        #TODO; need to find either how to pass in the layer obj with the weight and prune or w\how to modify LAYER class
         wrapped_layers = {}
         for name in subset:
             wrapped_layers[name] = WrappedGPT(subset[name])

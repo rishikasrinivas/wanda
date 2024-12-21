@@ -12,96 +12,31 @@ print('torch', version('torch'))
 print('transformers', version('transformers'))
 print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
-from torch.utils.data import DataLoader
-
-from data.snli import SNLI, pad_collate
-def create_dataloaders(max_data):
-    root_dir="../CCE_NLI/models/DataLoaders"
-    if not ('train_dataset.pth' in os.listdir(root_dir) and 'val_dataset.pth' in os.listdir(root_dir) and 'test_dataset.pth' in os.listdir(root_dir)):
-        train = SNLI("data/snli_1.0", "train", max_data=max_data)
-        train_loader = DataLoader(
-            train,
-            batch_size=100,
-            shuffle=True,
-            pin_memory=False,
-            num_workers=0,
-            collate_fn=pad_collate,
-        )
-        torch.save(train_loader.dataset, f'{root_dir}/train_dataset.pth')
-        
-        val = SNLI("data/snli_1.0","dev",max_data=max_data,vocab=(train.stoi, train.itos),unknowns=False)
-        val_loader = DataLoader(
-            val, 
-            batch_size=100, 
-            shuffle=False,
-            pin_memory=True, 
-            num_workers=0, 
-            collate_fn=pad_collate
-        
-        )
-        torch.save(val_loader.dataset, f'{root_dir}/val_dataset.pth')
-        
-        test = SNLI("data/snli_1.0", "test", max_data=max_data, vocab=(train.stoi, train.itos), unknowns=True)
-        test_loader = DataLoader(
-            test,
-            batch_size=100,
-            shuffle=False,
-            pin_memory=True,
-            num_workers=0,
-            collate_fn=pad_collate,
-        )
-        torch.save(test_loader.dataset, f'{root_dir}/test_dataset.pth')
-    else:
-        train_dataset = torch.load(f'{root_dir}/train_dataset.pth')
-        train_loader = torch.utils.data.DataLoader(
-            train_dataset, 
-            batch_size=100, 
-            shuffle=True, 
-            pin_memory=False,
-            num_workers=0,
-            collate_fn=pad_collate
-        )
-        
-        val_dataset = torch.load(f'{root_dir}/val_dataset.pth')
-        val_loader = torch.utils.data.DataLoader(
-            val_dataset, 
-            batch_size=100, 
-            shuffle=False, 
-            pin_memory=True, 
-            num_workers=0, 
-            collate_fn=pad_collate
-        )
-        
-        test_dataset = torch.load(f'{root_dir}/test_dataset.pth')
-        test_loader = torch.utils.data.DataLoader(
-            test_dataset, 
-            batch_size=100, 
-            shuffle=False,
-            pin_memory=True,
-            num_workers=0,
-            collate_fn=pad_collate
-        )
-        
-        
-    
-    dataloaders = {
-        'train': train_loader,
-        'val':val_loader,
-        'test': test_loader
-    }
-    return train_loader.dataset, val_loader.dataset,test_loader.dataset, dataloaders
+import lib.collect_data as collect_data
 
 def get_llm(model_name, cache_dir="llm_weights"):
-    train,val,test,dataloaders=create_dataloaders(max_data=10000)
+    train,val,test,dataloaders=collect_data.create_dataloaders(max_data=10000)
+
     enc = models.TextEncoder(
         vocab_size=len(train.stoi), embedding_dim=300, hidden_dim=512
     )
     model = models.BertEntailmentClassifier(vocab={'stoi': train.stoi, 'itos': train.itos})
     return model
+'''def get_llm(model_name, cache_dir="llm_weights"):
+    model = AutoModelForCausalLM.from_pretrained(
+        model_name, 
+        torch_dtype=torch.float16, 
+        cache_dir=cache_dir, 
+        low_cpu_mem_usage=True, 
+        device_map="auto"
+    )
+
+    model.seqlen = model.config.max_position_embeddings 
+    return model'''
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model', type=str, choices=["bowman", "bert"])
+    parser.add_argument('--model', type=str)
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
