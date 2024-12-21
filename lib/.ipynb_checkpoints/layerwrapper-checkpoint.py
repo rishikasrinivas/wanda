@@ -12,7 +12,6 @@ class WrappedGPT:
         self.dev = self.layer.weight.device
         self.rows = layer.weight.data.shape[0]
         self.columns = layer.weight.data.shape[1]
-
         self.scaler_row = torch.zeros((self.columns), device=self.dev)
         self.nsamples = 0
 
