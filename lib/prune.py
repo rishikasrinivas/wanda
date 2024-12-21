@@ -7,8 +7,9 @@ from .layerwrapper import WrappedGPT
 from .data import get_loaders 
 from .collect_data import create_dataloaders
 from .ablate import AblateGPT 
-
-def find_layers(module, layers=[nn.Linear], name=''):
+import collections
+from  .model import BaseModel, Layer
+def find_layers(model, module, layers=[nn.Linear], name=''):
     """
     Recursively find the layers of a certain type in a module.
 
@@ -25,7 +26,7 @@ def find_layers(module, layers=[nn.Linear], name=''):
     res = {}
     for name1, child in module.named_children():
         res.update(find_layers(
-            child, layers=layers, name=name + '.' + name1 if name != '' else name1
+            model, child, layers=layers, name=name + '.' + name1 if name != '' else name1
         ))
     return res
 
@@ -57,10 +58,10 @@ def check_sparsity(model):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
-    layers = model.model.layers
+    layers = get_modules(model)
     count = 0 
     total_params = 0
-    for i in range(len(layers)):
+    for i in layers:
         layer = layers[i]
         subset = find_layers(layer)
 
@@ -104,7 +105,7 @@ def prepare_calibration_input(model, dataloader, device):
     for batch in dataloader:
         try:
             s1, s1len, s2, s2len, target = batch[0].to(device)
-            model(batch[0].to(device))
+            model(s1, s1len, s2, s2len)
         except ValueError:
             pass 
     layers[0] = layers[0].module
@@ -145,7 +146,13 @@ def prune_magnitude(args, model, tokenizer, device=torch.device("cuda:0"), prune
                 W_mask = (W_metric<=thresh)
 
             W[W_mask] = 0
-
+def get_modules(model):
+    modules=collections.defaultdict(list)
+    for name, module in model.encoder.named_modules():
+        if name=="":
+            continue
+        modules[name]=module
+    return modules
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
@@ -153,26 +160,30 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     print("loading calibdation data")
     _,_,_, dataloaders=create_dataloaders(max_data=10000)
     dataloader = dataloaders['train']
-    dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
+    #dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     
     print("dataset loading complete")
     #with torch.no_grad():
      #   inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
         #outs is all zeros
  
-     
-    layers = model.layers
+ 
+    layers = get_modules(model)
+    
+    for key in layers:
+        layer = layers[key]
+        print(layer)
+        subset=find_layers(model, layer)
+        if not subset:
+            continue
+        print("subset: ", subset)
 
-    for i in range(len(layers)):
-        layer = layers[i]
-        subset=[layer]
-        
         #inps, outs, attention_mask, position_ids = inps.to(device), outs.to(device), attention_mask.to(device), position_ids.to(device)
             
         #TODO; need to find either how to pass in the layer obj with the weight and prune or w\how to modify LAYER class
         wrapped_layers = {}
         for name in subset:
-            wrapped_layers[name] = WrappedGPT(subset[name])
+            wrapped_layers[subset[name]] = WrappedGPT(subset[name])
 
         def add_batch(name):
             def tmp(_, inp, out):
@@ -181,7 +192,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         handles = []
         for name in wrapped_layers:
-            handles.append(subset[name].register_forward_hook(add_batch(name)))
+            handles.append(name.register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
@@ -190,7 +201,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
         for name in subset:
             print(f"pruning layer {i} name {name}")
-            W_metric = torch.abs(subset[name].weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
+            W_metric = torch.abs(name.weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
 
             W_mask = (torch.zeros_like(W_metric) == 1)  ## initialize a mask to be all False
             if prune_n != 0:
