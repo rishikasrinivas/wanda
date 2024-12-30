@@ -261,8 +261,8 @@ class BertEntailmentClassifier(BaseModel):
                 else:
                     break
             words.append(sentence)
-
-        return self.tokenizer(words, is_split_into_words=True, return_tensors="pt", padding=True, truncation=True)
+        tokenization = self.tokenizer(words, is_split_into_words=True, return_tensors="pt", padding='max_length', truncation=True)
+        return tokenization 
 
     def encode_sentence(self, tokens):
         outputs = self.encoder(**tokens)

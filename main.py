@@ -21,8 +21,10 @@ def get_llm(model_name, cache_dir="llm_weights"):
         vocab_size=len(train.stoi), embedding_dim=300, hidden_dim=512
     )
     model = models.BertEntailmentClassifier(vocab={'stoi': train.stoi, 'itos': train.itos})
-    
+    torch.save(model.state_dict(), "Results/bert_not_pruned_wanda.pth")
     return model
+        
+
 '''def get_llm(model_name, cache_dir="llm_weights"):
     model = AutoModelForCausalLM.from_pretrained(
         model_name, 
