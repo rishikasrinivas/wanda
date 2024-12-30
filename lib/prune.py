@@ -80,7 +80,7 @@ def check_sparsity(model):
     model.config.use_cache = use_cache 
     return float(count)/total_params 
 
-def prepare_calibration_input(model, dataloader, device):
+def prepare_calibration_input(model, dataloader, input_string, device):
     use_cache = model.config.use_cache
     model.config.use_cache = False
     layers = get_first_linear_module(model)
@@ -88,7 +88,7 @@ def prepare_calibration_input(model, dataloader, device):
     layers=layers[layer1]
     
 
-    print(layers) 
+
     '''BertEmbeddings(
       (word_embeddings): Embedding(30522, 768, padding_idx=0)
       (position_embeddings): Embedding(512, 768)
@@ -97,6 +97,7 @@ def prepare_calibration_input(model, dataloader, device):
       (dropout): Dropout(p=0.1, inplace=False)
     )'''
     dtype = next(iter(model.parameters())).dtype
+ 
     inps = torch.zeros((100, model.seqlen, 100), dtype=dtype, device=device)
     inps.requires_grad = False
     cache = {'i': 0, 'attention_mask': None, "position_ids": None}
@@ -105,51 +106,43 @@ def prepare_calibration_input(model, dataloader, device):
         def __init__(self, module):
             super().__init__()
             self.module = module
-
+        #need this to get the inputs to the first layer
         def forward(self, s1, s1len, s2, s2len, **kwargs):
             print("Inside Catcher forward!")  # Debug print
             print(s1, s1len, s2, s2len)
             inps[cache['i']] = (s1, s1len, s2, s2len)
             cache['i'] += 1
+            self.module(s1,s1len,s2,s2len)
             raise ValueError
 
     # Add debug prints
-    
-    '''found = False
-    for name, module in model.named_modules():
-        if module is layers:  # Direct reference comparison
-            print(f"Found embedding at: {name}")
-            parent_name = '.'.join(name.split('.')[:-1])
-            if parent_name:
-                parent = model.get_submodule(parent_name)
-                child_name = name.split('.')[-1]
-                original = getattr(parent, child_name)
-                setattr(parent, child_name, Catcher(original))
-                print(f"Wrapped embedding at {name}")
-                found = True
-                break
-    if not found: 
-        print("FAilure ")
-    print(model)'''
 
     model = model.to(device)
 
     # Add more debug
     print("Starting data loop")
     i=0
+    
     for batch in dataloader:
         try:
-            print("Processing batch")  # Debug print
             s1, s1len, s2, s2len, target = batch
-            inps[i][:batch[0].shape[0]] = batch[0]
+            if input_string == 's1':
+                print(s1.shape, inps[i][:len(s1), :].shape)
+                
+                inps[i][:s1.shape[0], :s1.shape[1]] = s1
+            elif input_string == 's2':
+                inps[i][:s2.shape[0], :s2.shape[1]] = s2
+            
+            #inps[i][:batch[0].shape[0]] = batch[0]
             s1 = s1.to(device)
             s2 = s2.to(device)
             #PROBLEM: wrapped the embedding layer to store inputs but 
-            model(s1, s1len, s2, s2len)
+            
             i+=1
         except ValueError:
             print("Caught ValueError")  # Debug print 
-    layers = layers.module
+
+
 
     outs = torch.zeros_like(inps)
     attention_mask = cache['attention_mask']
@@ -211,24 +204,25 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
     print("loading calibdation data")
     _,_,_, dataloaders=create_dataloaders(max_data=10000)
-    dataloader = dataloaders['train']
+    dataloader = dataloaders['val']
     #dataloader, _ = get_loaders("c4",nsamples=args.nsamples,seed=args.seed,seqlen=model.seqlen,tokenizer=tokenizer)
     
     print("dataset loading complete")
     with torch.no_grad():
-        inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader, device)
+        inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader,'s1', device)
         #outs is all zeros
  
- 
     layers = get_modules(model)
-    
+    #each mpdule
+    print("Layers ", layers)
     for key in layers:
+        #get the module
         layer = layers[key]
         print(layer)
+        #get all the layers
         subset=find_layers(model, layer)
         if not subset:
             continue
-        print("subset: ", subset)
 
         #inps, outs, attention_mask, position_ids = inps.to(device), outs.to(device), attention_mask.to(device), position_ids.to(device)
         inps, outs  = inps.to(device), outs.to(device)
@@ -248,11 +242,10 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(name.register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                print(inps[j])
                 outs[j] = layer(inps[j].unsqueeze(0))[0]
         for h in handles:
             h.remove()
-
+        #prunes eavh layer in the module
         for name in subset:
             print(f"pruning layer {key} name {name}")
             W_metric = torch.abs(name.weight.data) * torch.sqrt(wrapped_layers[name].scaler_row.reshape((1,-1)))
@@ -293,6 +286,7 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
 
+        #passes the inps thru the lauer to get the inputs to thenext layer
         for j in range(args.nsamples):
             with torch.no_grad():
                 outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]

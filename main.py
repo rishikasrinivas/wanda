@@ -21,6 +21,7 @@ def get_llm(model_name, cache_dir="llm_weights"):
         vocab_size=len(train.stoi), embedding_dim=300, hidden_dim=512
     )
     model = models.BertEntailmentClassifier(vocab={'stoi': train.stoi, 'itos': train.itos})
+    
     return model
 '''def get_llm(model_name, cache_dir="llm_weights"):
     model = AutoModelForCausalLM.from_pretrained(
@@ -38,7 +39,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str)
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
-    parser.add_argument('--nsamples', type=int, default=128, help='Number of calibration samples.')
+    parser.add_argument('--nsamples', type=int, default=100, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
     parser.add_argument("--sparsity_type", type=str, choices=["unstructured", "4:8", "2:4"])
     parser.add_argument("--prune_method", type=str, choices=["magnitude", "wanda", "sparsegpt", 
