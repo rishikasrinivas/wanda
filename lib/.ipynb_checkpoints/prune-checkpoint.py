@@ -134,14 +134,14 @@ def prepare_calibration_input(model, dataloader, input_string, embedder, device)
                 s1_tokens = {k: v.to(device) for k, v in s1_tokens.items()}
                 
                 s1_tokens_embed = embedder(s1_tokens['input_ids'])
-                print(s1_tokens_embed.shape)
+             
                 inps[i][:s1_tokens_embed.shape[0], :]= s1_tokens_embed[:, 0, :]
                 attention_mask[i][:s1_tokens['attention_mask'].shape[0], :] = s1_tokens['attention_mask']
             elif input_string == 's2':
                 s2_tokens = model.indices_to_bert_tokens(s2.transpose(1,0))
                 s2_tokens = {k: v.to(device) for k, v in s2_tokens.items()}
                 s2_tokens = embedder(**s2_tokens)
-                print(s2_tokens)
+         
                 inps[i]= s2_tokens['input_ids']
                 attention_mask[i] = s2_tokens['attention_mask']
 
@@ -236,11 +236,13 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     for key in layers:
         #get the module
         layer = layers[key]
+        
         #get all the layers
         subset=find_layers(model, layer)
         if not subset:
             continue
-
+        
+        
         #inps, outs, attention_mask, position_ids = inps.to(device), outs.to(device), attention_mask.to(device), position_ids.to(device)
         inps, outs  = inps.to(device), outs.to(device)
         
@@ -263,8 +265,9 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
         for h in handles:
             h.remove()
         #prunes eavh layer in the module
+        #print(subset)
         for name in subset:
-            print(f"pruning layer {key} name {name}, {subset[name]}")
+            #print(f"pruning layer {key} name {name}, {subset[name]}")
             subset_value = subset[name]
             W_metric = torch.abs(subset_value.weight.data) * torch.sqrt(wrapped_layers[subset_value].scaler_row.reshape((1,-1)))
 
@@ -304,11 +307,15 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
             
-
+        print(layer)
+        a=0
         #passes the inps thru the lauer to get the inputs to thenext layer
         for j in range(args.nsamples):
-            with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0))[0]
+            input_tmp = inps[j].unsqueeze(0)
+            for l in layer.layer:
+                out_tmp= layer(input_tmp)[0]
+                input_tmp = out_tmp
+            outs[j]=out_tmp
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
@@ -402,7 +409,8 @@ def prune_wanda_bert(args, model, tokenizer, device=torch.device("cuda:0"), prun
 
     for j in range(args.nsamples):
         with torch.no_grad():
-            outs[j] = layer(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
+            for layer_ in layer:
+                outs[j] = layer_(inps[j].unsqueeze(0), attention_mask=attention_mask, position_ids=position_ids)[0]
     inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
