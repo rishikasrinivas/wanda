@@ -59,12 +59,11 @@ def check_sparsity(model):
     use_cache = model.config.use_cache 
     model.config.use_cache = False 
 
-    layers = get_modules(model)
+    layers = layers = model.encoder.encoder.layer
     count = 0 
     total_params = 0
-    for i in layers:
-        layer = layers[i]
-        subset = find_layers(layer)
+    for i, layer in enumerate(layers):
+        subset = find_layers(model, layer)
 
         sub_count = 0
         sub_params = 0
@@ -209,10 +208,12 @@ def get_embedder(model):
     
 def get_modules(model):
     modules=collections.defaultdict(list)
-    for name, module in model.encoder.named_modules():
+    for name, module in model.named_modules:
         if name=="":
             continue
+        print(name)
         modules[name]=module
+        
     return modules
 
 def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0, prune_m=0):
@@ -226,21 +227,26 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
     
     print("dataset loading complete")
     embedder = get_embedder(model)
+    print(embedder)
     with torch.no_grad():
         inps, outs, attention_mask, position_ids = prepare_calibration_input(model, dataloader,'s1',embedder, device)
+       
         #outs is all zeros
  
-    layers = get_modules(model)
-    #each mpdule
-  
-    for key in layers:
+    layers = model.encoder.encoder.layer
+
+    #layers = get_modules(layers)
+
+
+    for layer in layers:
         #get the module
-        layer = layers[key]
+        
         
         #get all the layers
         subset=find_layers(model, layer)
         if not subset:
             continue
+        print(type(layer))
         
         
         #inps, outs, attention_mask, position_ids = inps.to(device), outs.to(device), attention_mask.to(device), position_ids.to(device)
@@ -261,13 +267,18 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
             handles.append(name.register_forward_hook(add_batch(name)))
         for j in range(args.nsamples):
             with torch.no_grad():
-                outs[j] = layer(inps[j].unsqueeze(0))[0]
+               
+                input_tmp = inps[j].unsqueeze(0)
+                outs[j] = layer(input_tmp)[0]
+                    
+        
+           
         for h in handles:
             h.remove()
         #prunes eavh layer in the module
         #print(subset)
         for name in subset:
-            #print(f"pruning layer {key} name {name}, {subset[name]}")
+            print(f"pruning layer {type(layer)} name {name}, {subset[name]}")
             subset_value = subset[name]
             W_metric = torch.abs(subset_value.weight.data) * torch.sqrt(wrapped_layers[subset_value].scaler_row.reshape((1,-1)))
 
@@ -307,15 +318,13 @@ def prune_wanda(args, model, tokenizer, device=torch.device("cuda:0"), prune_n=0
 
             subset[name].weight.data[W_mask] = 0  ## set weights to zero 
             
-        print(layer)
+    
         a=0
         #passes the inps thru the lauer to get the inputs to thenext layer
         for j in range(args.nsamples):
             input_tmp = inps[j].unsqueeze(0)
-            for l in layer.layer:
-                out_tmp= layer(input_tmp)[0]
-                input_tmp = out_tmp
-            outs[j]=out_tmp
+            outs[j]= layer(input_tmp)[0]
+              
         inps, outs = outs, inps
 
     model.config.use_cache = use_cache 
