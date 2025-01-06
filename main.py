@@ -14,18 +14,23 @@ print('accelerate', version('accelerate'))
 print('# of gpus: ', torch.cuda.device_count())
 import lib.collect_data as collect_data
 
-def get_llm(model_name, cache_dir="llm_weights"):
+def get_model(model_name, cache_dir="llm_weights"):
     train,val,test,dataloaders=collect_data.create_dataloaders(max_data=10000)
 
     enc = models.TextEncoder(
         vocab_size=len(train.stoi), embedding_dim=300, hidden_dim=512
     )
-    model = models.BertEntailmentClassifier(vocab={'stoi': train.stoi, 'itos': train.itos})
+    if model_name == 'bert':
+        model = models.BertEntailmentClassifier(vocab={'stoi': train.stoi, 'itos': train.itos})
+    elif model_name == 'bowman':
+        model = models.BowmanEntailmentClassifier(enc)
+        print(model)
+      
     torch.save(model.state_dict(), "Results/bert_not_pruned_wanda.pth")
  
+
     return model
-    return model
-        
+  
 
 '''def get_llm(model_name, cache_dir="llm_weights"):
     model = AutoModelForCausalLM.from_pretrained(
@@ -42,6 +47,7 @@ def get_llm(model_name, cache_dir="llm_weights"):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--model', type=str)
+    parser.add_argument('--seg', type=str, choices=["enc", "mlp"])
     parser.add_argument('--seed', type=int, default=0, help='Seed for sampling the calibration data.')
     parser.add_argument('--nsamples', type=int, default=100, help='Number of calibration samples.')
     parser.add_argument('--sparsity_ratio', type=float, default=0, help='Sparsity level')
@@ -68,7 +74,7 @@ def main():
 
     model_name = args.model.split("/")[-1]
     print(f"loading llm model {args.model}")
-    model = get_llm(args.model, args.cache_dir)
+    model = get_model(args.model, args.cache_dir)
     model.eval()
     tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased", use_fast=False)
 
@@ -90,7 +96,7 @@ def main():
 
     ################################################################
     print("*"*30)
-    sparsity_ratio = check_sparsity(model)
+    sparsity_ratio = check_sparsity(model, args)
     print(f"sparsity sanity check {sparsity_ratio:.4f}")
     print("*"*30)
     ################################################################
